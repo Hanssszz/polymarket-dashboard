@@ -1,23 +1,23 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Polymarket Live Dashboard</title>
+  <title>Polymarket Dashboard</title>
   <style>
     body {
       font-family: Arial;
-      background: #0f0f0f;
+      background: #0b0b0b;
       color: white;
       text-align: center;
     }
 
     .market {
-      background: #1e1e1e;
+      background: #1c1c1c;
       margin: 10px auto;
       padding: 12px;
       width: 75%;
       border-radius: 10px;
       text-align: left;
-      border-left: 4px solid lime;
+      border-left: 4px solid #00ff88;
     }
 
     .time {
@@ -25,24 +25,17 @@
       font-size: 12px;
     }
 
-    .live {
-      color: lime;
-      font-weight: bold;
-    }
-
     #stats {
-      margin: 10px;
       color: cyan;
+      margin: 10px;
     }
   </style>
 </head>
 
 <body>
 
-<h1>📊 Polymarket Live Dashboard</h1>
-<p class="live">● LIVE FEED</p>
-
-<div id="stats"></div>
+<h1>📊 Production Polymarket Dashboard</h1>
+<div id="stats">Loading...</div>
 <div id="feed"></div>
 
 <script src="/socket.io/socket.io.js"></script>
@@ -51,40 +44,26 @@ const socket = io();
 
 let count = 0;
 
-// render market
-function renderMarket(data, prepend = true) {
+function render(m) {
   count++;
 
   document.getElementById("stats").innerText =
-    `Total Markets Seen: ${count}`;
+    `Markets Received: ${count}`;
 
   const div = document.createElement("div");
   div.className = "market";
 
   div.innerHTML = `
-    🆕 <b>${data.title}</b><br>
-    <span class="time">🕒 ${data.time}</span><br>
-    <small>ID: ${data.id}</small>
+    🆕 <b>${m.title}</b><br>
+    <span class="time">🕒 ${m.time}</span><br>
+    <small>ID: ${m.id}</small>
   `;
 
-  const feed = document.getElementById("feed");
-
-  if (prepend) {
-    feed.prepend(div);
-  } else {
-    feed.appendChild(div);
-  }
+  document.getElementById("feed").prepend(div);
 }
 
-// live updates
-socket.on("newMarket", (data) => {
-  renderMarket(data, true);
-});
-
-// load history on connect
-socket.on("history", (history) => {
-  history.forEach(m => renderMarket(m, false));
-});
+socket.on("newMarket", render);
+socket.on("history", (data) => data.forEach(render));
 </script>
 
 </body>

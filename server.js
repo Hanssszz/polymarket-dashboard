@@ -11,86 +11,118 @@ app.use(cors());
 app.use(express.static(__dirname));
 
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+  cors: {
+    origin: "*"
+  }
+});
 
-// store seen markets + history log
+/**
+ * =========================
+ * STATE (in-memory cache)
+ * =========================
+ */
 let seen = new Set();
-let marketHistory = []; // NEW: persistent session history
+let marketHistory = [];
 
-// homepage route
+/**
+ * HEALTH CHECK (important for Railway)
+ */
+app.get("/health", (req, res) => {
+  res.json({
+    status: "ok",
+    uptime: process.uptime(),
+    markets: marketHistory.length
+  });
+});
+
+/**
+ * FRONTEND
+ */
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
-// format timestamp nicely
+/**
+ * SAFE TIME FORMATTER
+ */
 function getTime() {
-  return new Date().toLocaleString("en-NG", {
-    timeZone: "Africa/Lagos",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-  });
+  return new Date().toISOString();
 }
 
 /**
- * FETCH POLYMARKET DATA
+ * =========================
+ * CORE FETCHER (production safe)
+ * =========================
  */
-async function checkMarkets() {
+async function fetchMarkets() {
   try {
     const res = await axios.get(
-      "https://gamma-api.polymarket.com/markets?active=true"
+      "https://gamma-api.polymarket.com/markets?active=true",
+      { timeout: 10000 }
     );
 
     const markets = res.data;
 
-    for (let m of markets) {
-      if (!seen.has(m.id)) {
-        seen.add(m.id);
+    if (!Array.isArray(markets)) return;
 
-        const marketEvent = {
-          id: m.id,
-          title: m.question,
-          time: getTime(), // NEW: formatted timestamp
-          rawTime: Date.now(), // optional for sorting later
-        };
+    for (const m of markets) {
+      if (!m?.id || seen.has(m.id)) continue;
 
-        // store history
-        marketHistory.push(marketEvent);
+      seen.add(m.id);
 
-        console.log(`[${marketEvent.time}] NEW MARKET:`, m.question);
+      const event = {
+        id: m.id,
+        title: m.question || "Unknown Market",
+        time: getTime(),
+        timestamp: Date.now()
+      };
 
-        // send to frontend
-        io.emit("newMarket", marketEvent);
+      marketHistory.push(event);
+
+      // prevent memory explosion (keep last 5000)
+      if (marketHistory.length > 5000) {
+        marketHistory.shift();
       }
+
+      console.log(`[NEW] ${event.time} - ${event.title}`);
+
+      io.emit("newMarket", event);
     }
   } catch (err) {
-    console.log("Fetch error:", err.message);
+    console.error("[FETCH ERROR]", err.message);
   }
 }
 
-// API endpoint to fetch full history (NEW FEATURE)
-app.get("/history", (req, res) => {
-  res.json(marketHistory);
-});
-
-// auto-run bot
-setInterval(checkMarkets, 10000); // faster updates (10s)
-checkMarkets();
-
-// socket connection
+/**
+ * CLIENT CONNECTION
+ */
 io.on("connection", (socket) => {
   console.log("Client connected");
 
-  // send history immediately on connect
-  socket.emit("history", marketHistory);
+  // send latest state
+  socket.emit("history", marketHistory.slice(-200));
 });
 
-// Railway-compatible port
+/**
+ * =========================
+ * AUTO LOOP (production-safe)
+ * =========================
+ */
+async function startLoop() {
+  await fetchMarkets();
+  setTimeout(startLoop, 10000); // safer than setInterval
+}
+
+startLoop();
+
+/**
+ * =========================
+ * SERVER START
+ * =========================
+ */
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, () => {
-  console.log("Server running on port", PORT);
+  console.log("Production server running on", PORT);
 });

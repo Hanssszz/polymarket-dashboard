@@ -3,23 +3,41 @@ const http = require("http");
 const cors = require("cors");
 const { Server } = require("socket.io");
 const axios = require("axios");
+const path = require("path");
 require("dotenv").config();
 
 const app = express();
 app.use(cors());
+app.use(express.static(__dirname));
 
 const server = http.createServer(app);
 const io = new Server(server);
 
-// store seen markets
+// store seen markets + history log
 let seen = new Set();
+let marketHistory = []; // NEW: persistent session history
 
-// serve dashboard
+// homepage route
 app.get("/", (req, res) => {
-  res.sendFile(__dirname + "/index.html");
+  res.sendFile(path.join(__dirname, "index.html"));
 });
 
-// fetch Polymarket markets
+// format timestamp nicely
+function getTime() {
+  return new Date().toLocaleString("en-NG", {
+    timeZone: "Africa/Lagos",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+  });
+}
+
+/**
+ * FETCH POLYMARKET DATA
+ */
 async function checkMarkets() {
   try {
     const res = await axios.get(
@@ -32,17 +50,20 @@ async function checkMarkets() {
       if (!seen.has(m.id)) {
         seen.add(m.id);
 
-        const data = {
+        const marketEvent = {
           id: m.id,
           title: m.question,
-          url: "https://polymarket.com",
-          time: new Date().toISOString(),
+          time: getTime(), // NEW: formatted timestamp
+          rawTime: Date.now(), // optional for sorting later
         };
 
-        console.log("NEW MARKET:", m.question);
+        // store history
+        marketHistory.push(marketEvent);
 
-        // send live update to dashboard
-        io.emit("newMarket", data);
+        console.log(`[${marketEvent.time}] NEW MARKET:`, m.question);
+
+        // send to frontend
+        io.emit("newMarket", marketEvent);
       }
     }
   } catch (err) {
@@ -50,18 +71,26 @@ async function checkMarkets() {
   }
 }
 
-// AUTO RUN LOOP (no buttons, no manual start)
-setInterval(checkMarkets, 15000);
-checkMarkets(); // run immediately on startup
+// API endpoint to fetch full history (NEW FEATURE)
+app.get("/history", (req, res) => {
+  res.json(marketHistory);
+});
+
+// auto-run bot
+setInterval(checkMarkets, 10000); // faster updates (10s)
+checkMarkets();
 
 // socket connection
 io.on("connection", (socket) => {
-  console.log("User connected to dashboard");
+  console.log("Client connected");
+
+  // send history immediately on connect
+  socket.emit("history", marketHistory);
 });
 
-// Railway requires dynamic port
+// Railway-compatible port
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, () => {
-  console.log("🚀 Server running on port", PORT);
+  console.log("Server running on port", PORT);
 });

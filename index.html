@@ -1,8 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Polymarket Dashboard</title>
-
+  <title>Polymarket Live Dashboard</title>
   <style>
     body {
       font-family: Arial;
@@ -11,22 +10,29 @@
       text-align: center;
     }
 
-    h1 {
-      margin-top: 20px;
-    }
-
     .market {
       background: #1e1e1e;
-      padding: 12px;
       margin: 10px auto;
-      width: 70%;
-      border-radius: 8px;
+      padding: 12px;
+      width: 75%;
+      border-radius: 10px;
       text-align: left;
+      border-left: 4px solid lime;
+    }
+
+    .time {
+      color: #aaa;
+      font-size: 12px;
     }
 
     .live {
       color: lime;
-      font-size: 14px;
+      font-weight: bold;
+    }
+
+    #stats {
+      margin: 10px;
+      color: cyan;
     }
   </style>
 </head>
@@ -34,23 +40,50 @@
 <body>
 
 <h1>📊 Polymarket Live Dashboard</h1>
-<p class="live">● LIVE</p>
+<p class="live">● LIVE FEED</p>
 
+<div id="stats"></div>
 <div id="feed"></div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
 const socket = io();
 
-socket.on("newMarket", (data) => {
+let count = 0;
+
+// render market
+function renderMarket(data, prepend = true) {
+  count++;
+
+  document.getElementById("stats").innerText =
+    `Total Markets Seen: ${count}`;
+
   const div = document.createElement("div");
   div.className = "market";
 
   div.innerHTML = `
-    🆕 <b>${data.title}</b>
+    🆕 <b>${data.title}</b><br>
+    <span class="time">🕒 ${data.time}</span><br>
+    <small>ID: ${data.id}</small>
   `;
 
-  document.getElementById("feed").prepend(div);
+  const feed = document.getElementById("feed");
+
+  if (prepend) {
+    feed.prepend(div);
+  } else {
+    feed.appendChild(div);
+  }
+}
+
+// live updates
+socket.on("newMarket", (data) => {
+  renderMarket(data, true);
+});
+
+// load history on connect
+socket.on("history", (history) => {
+  history.forEach(m => renderMarket(m, false));
 });
 </script>
 

@@ -1,69 +1,65 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Polymarket Dashboard</title>
+  <title>Polymarket Real New Markets</title>
   <style>
     body {
       font-family: Arial;
-      background: #0b0b0b;
+      background: #0d0d0d;
       color: white;
       text-align: center;
     }
 
     .market {
-      background: #1c1c1c;
+      background: #1d1d1d;
       margin: 10px auto;
       padding: 12px;
       width: 75%;
       border-radius: 10px;
       text-align: left;
-      border-left: 4px solid #00ff88;
+      border-left: 4px solid lime;
     }
 
-    .time {
+    .meta {
       color: #aaa;
       font-size: 12px;
     }
-
-    #stats {
-      color: cyan;
-      margin: 10px;
-    }
   </style>
 </head>
-
 <body>
 
-<h1>📊 Production Polymarket Dashboard</h1>
-<div id="stats">Loading...</div>
+<h1>📈 Real New Polymarket Markets</h1>
+<p>Only showing markets created in last 10 minutes</p>
+
 <div id="feed"></div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
 const socket = io();
 
-let count = 0;
-
-function render(m) {
-  count++;
-
-  document.getElementById("stats").innerText =
-    `Markets Received: ${count}`;
-
+function render(market, prepend = true) {
   const div = document.createElement("div");
   div.className = "market";
 
   div.innerHTML = `
-    🆕 <b>${m.title}</b><br>
-    <span class="time">🕒 ${m.time}</span><br>
-    <small>ID: ${m.id}</small>
+    <b>${market.title}</b><br>
+    <div class="meta">
+      Created: ${market.createdAt}<br>
+      Detected: ${market.detectedAt}
+    </div>
   `;
 
-  document.getElementById("feed").prepend(div);
+  const feed = document.getElementById("feed");
+
+  if (prepend) {
+    feed.prepend(div);
+  } else {
+    feed.appendChild(div);
+  }
 }
 
-socket.on("newMarket", render);
-socket.on("history", (data) => data.forEach(render));
+socket.on("newMarket", (market) => render(market, true));
+socket.on("history", (history) => history.forEach(m => render(m, false)));
 </script>
 
 </body>

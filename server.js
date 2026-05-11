@@ -4,56 +4,37 @@ const cors = require("cors");
 const { Server } = require("socket.io");
 const axios = require("axios");
 const path = require("path");
-require("dotenv").config();
 
 const app = express();
 app.use(cors());
 app.use(express.static(__dirname));
 
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: "*"
-  }
-});
+const io = new Server(server);
 
-/**
- * =========================
- * STATE (in-memory cache)
- * =========================
- */
 let seen = new Set();
 let marketHistory = [];
 
 /**
- * HEALTH CHECK (important for Railway)
- */
-app.get("/health", (req, res) => {
-  res.json({
-    status: "ok",
-    uptime: process.uptime(),
-    markets: marketHistory.length
-  });
-});
-
-/**
- * FRONTEND
+ * Homepage
  */
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
 /**
- * SAFE TIME FORMATTER
+ * Health check
  */
-function getTime() {
-  return new Date().toISOString();
-}
+app.get("/health", (req, res) => {
+  res.json({
+    status: "ok",
+    trackedMarkets: marketHistory.length,
+    uptime: process.uptime()
+  });
+});
 
 /**
- * =========================
- * CORE FETCHER (production safe)
- * =========================
+ * Fetch ONLY real recent markets
  */
 async function fetchMarkets() {
   try {
@@ -63,66 +44,67 @@ async function fetchMarkets() {
     );
 
     const markets = res.data;
-
-    if (!Array.isArray(markets)) return;
+    const now = Date.now();
 
     for (const m of markets) {
       if (!m?.id || seen.has(m.id)) continue;
+
+      // created time from API
+      const createdTime = new Date(m.createdAt || 0).getTime();
+
+      // only allow markets created in last 10 mins
+      const isRecent = now - createdTime < 10 * 60 * 1000;
+
+      if (!isRecent) continue;
 
       seen.add(m.id);
 
       const event = {
         id: m.id,
         title: m.question || "Unknown Market",
-        time: getTime(),
-        timestamp: Date.now()
+        createdAt: m.createdAt,
+        detectedAt: new Date().toISOString()
       };
 
       marketHistory.push(event);
 
-      // prevent memory explosion (keep last 5000)
-      if (marketHistory.length > 5000) {
+      // keep memory manageable
+      if (marketHistory.length > 1000) {
         marketHistory.shift();
       }
 
-      console.log(`[NEW] ${event.time} - ${event.title}`);
+      console.log("REAL NEW MARKET:", event.title);
 
       io.emit("newMarket", event);
     }
   } catch (err) {
-    console.error("[FETCH ERROR]", err.message);
+    console.error("Fetch error:", err.message);
   }
 }
 
 /**
- * CLIENT CONNECTION
+ * Send history to new clients
  */
 io.on("connection", (socket) => {
   console.log("Client connected");
-
-  // send latest state
-  socket.emit("history", marketHistory.slice(-200));
+  socket.emit("history", marketHistory);
 });
 
 /**
- * =========================
- * AUTO LOOP (production-safe)
- * =========================
+ * Recursive polling loop
  */
-async function startLoop() {
+async function loop() {
   await fetchMarkets();
-  setTimeout(startLoop, 10000); // safer than setInterval
+  setTimeout(loop, 10000); // check every 10 sec
 }
 
-startLoop();
+loop();
 
 /**
- * =========================
- * SERVER START
- * =========================
+ * Start server
  */
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, () => {
-  console.log("Production server running on", PORT);
+  console.log("Server running on port", PORT);
 });
